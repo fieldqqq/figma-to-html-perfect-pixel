@@ -48,21 +48,21 @@ npx figma-to-html-pixel-perfect --project    # this project only: ./.claude/skil
 **One-liner without npm (pulls straight from GitHub)**
 
 ```bash
-npx tiged fieldqqq/figma-to-html-perfect-pixel \
+npx tiged fieldqqq/figma-to-html-pixel-perfect \
   ~/.claude/skills/figma-to-html-pixel-perfect
 ```
 
 **Personal skill (git — recommended if you want `git pull` updates)**
 
 ```bash
-git clone https://github.com/fieldqqq/figma-to-html-perfect-pixel \
+git clone https://github.com/fieldqqq/figma-to-html-pixel-perfect \
   ~/.claude/skills/figma-to-html-pixel-perfect
 ```
 
 **Project skill**
 
 ```bash
-git clone https://github.com/fieldqqq/figma-to-html-perfect-pixel \
+git clone https://github.com/fieldqqq/figma-to-html-pixel-perfect \
   .claude/skills/figma-to-html-pixel-perfect
 ```
 
