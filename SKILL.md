@@ -569,6 +569,13 @@ Rules:
   write a single `:hover` rule (§9.0).
 - If the file holds several page-sized frames, confirm the scope with the user before
   building one and calling it done.
+- **Which VERSION is a question only the user can answer.** A design file routinely holds
+  a dozen superseded revisions of one screen; the file carries NO reliable "this is live"
+  flag. `figma_discover.py` prints the same-width frames with their node-id, canvas order
+  and any name hint (`APPR`/`Final`/`Ready`/date) — surface that list verbatim and let the
+  user pick. The newest date or the largest frame is a hint, never a decision. Building the
+  wrong revision is a silent, total failure the audits cannot catch (they compare against
+  whatever frame you chose).
 
 ### 6.5.1 Access preflight (1 call, before any planning)
 

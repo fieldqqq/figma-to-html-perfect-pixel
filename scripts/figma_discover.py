@@ -118,10 +118,13 @@ def main():
         is_icon_page = "icon" in pname.lower() and bool(kids)
         if is_icon_page:
             icon_pages.append(pname)
-        for k in kids:
+        for idx, k in enumerate(kids):
             w, h = size(k)
             name = k.get("name", "")
-            entry = {"page": pname, "name": name, "w": w, "h": h, "type": k.get("type")}
+            bb = k.get("absoluteBoundingBox") or {}
+            entry = {"page": pname, "name": name, "w": w, "h": h, "type": k.get("type"),
+                     "id": k.get("id"), "order": idx,
+                     "x": round(bb.get("x", 0)), "y": round(bb.get("y", 0))}
             if k.get("type") in ("COMPONENT", "COMPONENT_SET"):
                 components.append(entry)
             if 0 < w <= ICON_MAX and 0 < h <= ICON_MAX:
@@ -150,6 +153,26 @@ def main():
         print("     instead of building that frame is a fabrication.\n")
     else:
         print("\n  -> one width only; responsive behaviour is genuinely inferred (label it).\n")
+
+    # ---- Which VERSION? The file cannot answer this; the user must. Print the signals
+    # that make the question answerable in one glance, and NEVER pick for them: a design
+    # file routinely holds a dozen superseded revisions of the same screen and the newest
+    # or largest is not reliably the live one.
+    if len(screens) > 3:
+        print("MULTIPLE SCREEN-SIZED FRAMES — the file does not say which is current.")
+        print("Ask the user to pick. Signals below (later canvas position and later date in")
+        print("the name USUALLY mean newer — but 'usually' is not 'verified'; do not choose):")
+        for w in [wd for wd, _ in widths.most_common()]:
+            group = [s for s in screens if s["w"] == w]
+            if len(group) < 2:
+                continue
+            print(f"\n  {w}px — {len(group)} frames (canvas order, last is right-most/newest position):")
+            HINTS = ("appr", "approv", "final", "current", "live", "ready", "dev", "handoff", "✅")
+            for s in sorted(group, key=lambda s: (s["x"], s["y"]))[-8:]:
+                nid = (s.get("id") or "").replace(":", "-")
+                flag = "  <-- name hints CURRENT" if any(h in s["name"].lower() for h in HINTS) else ""
+                print(f"    {s['name'][:46]:46} {s['h']:>6}px  node-id={nid}  page={s['page'][:12]!r}{flag}")
+        print("\n  -> Send the list to the user verbatim and build ONLY what they name.\n")
 
     # An icon page's real components live below depth 2; fetch those pages properly.
     lib = []
