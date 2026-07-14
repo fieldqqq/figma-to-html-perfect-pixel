@@ -1,6 +1,6 @@
 {
   "name": "figma-to-html-pixel-perfect",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Claude Code skill: Figma → pixel-perfect HTML/CSS with a self-verifying fidelity pipeline (114 documented failure modes). Running this package installs the skill into ~/.claude/skills.",
   "bin": {
     "figma-to-html-pixel-perfect": "bin/install.js"
@@ -16,8 +16,19 @@
     "type": "git",
     "url": "git+https://github.com/fieldqqq/figma-to-html-pixel-perfect.git"
   },
-  "keywords": ["claude", "claude-code", "skill", "figma", "html", "css", "pixel-perfect", "design-to-code"],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "skill",
+    "figma",
+    "html",
+    "css",
+    "pixel-perfect",
+    "design-to-code"
+  ],
   "author": "fieldqqq",
   "license": "MIT",
-  "engines": { "node": ">=16" }
+  "engines": {
+    "node": ">=16"
+  }
 }
