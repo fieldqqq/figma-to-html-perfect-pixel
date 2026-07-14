@@ -38,7 +38,14 @@ wrong. Every rule in `SKILL.md` is a guard against a failure that actually happe
 
 ## Install
 
-**One-liner (npx, no git history)**
+**npx (recommended)**
+
+```bash
+npx figma-to-html-pixel-perfect              # personal: ~/.claude/skills (all projects)
+npx figma-to-html-pixel-perfect --project    # this project only: ./.claude/skills
+```
+
+**One-liner without npm (pulls straight from GitHub)**
 
 ```bash
 npx tiged fieldqqq/figma-to-html-perfect-pixel \
