@@ -460,6 +460,7 @@ probe.addEventListener('load', async () => {
   const sbw = DESIGN_W - d.documentElement.clientWidth;
   if (sbw > 0) probe.style.width = (DESIGN_W + sbw) + 'px';
 
+
   // Force fresh CSS/JS. The HTML was loaded with a cache-bust, but its linked stylesheets are
   // cached separately, so a just-fixed offset can still be measured against the OLD CSS. Re-
   // point every same-origin <link rel=stylesheet>/<script>/<img> at a busted URL and wait for
@@ -484,6 +485,32 @@ probe.addEventListener('load', async () => {
   await Promise.all(busted);
   await new Promise(r => setTimeout(r, 60));   // let the fresh CSS lay out
 
+  // Measurements are only trustworthy on a FINISHED page. Web-font swaps change every
+  // text box; an undecoded image with no reserved aspect box shifts everything below it.
+  // Measuring on a fixed timeout samples whatever happened to be loaded — the same build
+  // then reads DIFFERENTLY run to run, and every phantom delta costs a whole fix round.
+  try { await Promise.race([d.fonts.ready, new Promise(r=>setTimeout(r,4000))]); } catch(e){}
+  // NB: cap EVERY wait — img.decode() can stay pending forever in a throttled/hidden
+  // renderer, and one stuck promise would blank the whole report
+  await Promise.all([...d.images].map(im => Promise.race([
+    im.decode ? im.decode().catch(()=>{}) :
+      (im.complete ? Promise.resolve() : new Promise(r=>{im.onload=im.onerror=r;})),
+    new Promise(r=>setTimeout(r,2500))])));
+  // settle check: layout must be identical across two samples 250ms apart
+  const sample = () => [...d.querySelectorAll('section,footer,header')].map(e=>Math.round(e.getBoundingClientRect().height)).join(',');
+  for (let i=0;i<6;i++){ const a=sample(); await new Promise(r=>setTimeout(r,250)); if(sample()===a) break; }
+
+  // LAST before measuring (after CSS rebust + settle, which can re-run page scripts):
+  // deterministically re-fire every matchMedia listener against the final width, so
+  // breakpoint-synced component state (accordion open/closed etc.) cannot be a load-order
+  // race (FM131). Then re-settle once.
+  const finalW = probe.style.width || (DESIGN_W + 'px');
+  probe.style.width = (DESIGN_W + 700) + 'px';
+  await new Promise(r => setTimeout(r, 100));
+  probe.style.width = finalW;
+  await new Promise(r => setTimeout(r, 150));
+  for (let i=0;i<4;i++){ const a=sample(); await new Promise(r=>setTimeout(r,250)); if(sample()===a) break; }
+
   // Measure the RESOLVED layout, never a mid-animation frame. An entrance reveal commonly
   // starts elements at opacity:0 translateY(Npx) and transitions them in. In this offscreen
   // measuring iframe document.hidden is true, so CSS transitions and IntersectionObserver are
@@ -503,6 +530,39 @@ probe.addEventListener('load', async () => {
   // strip common ones so their descendants settle too.
   ['preload','loading','no-js','js-loading'].forEach(c => {
     d.documentElement.classList.remove(c); d.body && d.body.classList.remove(c);
+  });
+
+  // The !important reset above only catches elements that STILL carry a reveal marker
+  // (data-reveal / a reveal class). It does NOT catch two very common cases:
+  //   1. A WAAPI entrance (el.animate([...])) — a Web Animation is a SEPARATE timeline from
+  //      CSS, so `animation:none!important` never touches it, and while it runs it composites
+  //      OVER even !important author styles. `transition:none` is equally irrelevant to it.
+  //   2. A reveal whose JS sets an inline `style.opacity=0`/`transform` on load and STRIPS the
+  //      data-reveal marker the moment it starts animating — so by measure time the element has
+  //      no marker for the selector to match, yet is stranded at opacity:0 / translateY(N).
+  // Result: a perfectly-built page reads uniformly N px low across EVERY section (the entrance
+  // offset), and the count swings run-to-run purely on which frame of the animation you caught.
+  // Neutralise both, synchronously, right before measuring: finish every Web Animation to its
+  // end state, commit that end state to inline style, cancel it so nothing re-drives it, then
+  // clear the inline opacity/transform/filter/visibility the reveal JS may have set. This only
+  // removes the animation's own displacement; a real design offset lives in layout, not here.
+  try {
+    const anims = (d.getAnimations ? d.getAnimations() : []);
+    anims.forEach(a => {
+      try { a.finish(); } catch (e) {}
+      try { a.commitStyles && a.commitStyles(); } catch (e) {}
+      try { a.cancel(); } catch (e) {}
+    });
+  } catch (e) {}
+  d.querySelectorAll('*').forEach(e => {
+    // commitStyles wrote the END state (opacity:1, transform:none) inline for animated nodes;
+    // for nodes the reveal JS pre-set to opacity:0 but never animated, just drop the inline hide.
+    const s = e.style;
+    if (s.opacity !== '' && parseFloat(s.opacity) < 1) s.removeProperty('opacity');
+    const tr = s.transform;
+    if (tr && tr !== 'none') s.removeProperty('transform');
+    if (s.filter && s.filter !== 'none') s.removeProperty('filter');
+    if (s.visibility === 'hidden') s.removeProperty('visibility');
   });
   void d.documentElement.offsetHeight;   // force a synchronous reflow with the reset applied
 
@@ -718,8 +778,10 @@ probe.addEventListener('load', async () => {
 
       const bad = [];
       const posOK = Math.abs(dx) <= 4 && Math.abs(dy) <= 4;
-      if (Math.abs(dx) > 4) bad.push(`x ${dx>0?'+':''}${dx}`);
-      if (Math.abs(dy) > 4) bad.push(`y ${dy>0?'+':''}${dy}`);
+      // Always carry the DESIGN target next to the delta. A bare "+8" invites nudge-and-
+      // remeasure guessing; "design y934" makes the correct edit a subtraction, not a guess.
+      if (Math.abs(dx) > 4) bad.push(`x ${dx>0?'+':''}${dx} [design x${t.x}]`);
+      if (Math.abs(dy) > 4) bad.push(`y ${dy>0?'+':''}${dy} [design y${t.y}]`);
       if (posOK) tally.position++;
       const sizeOK = !t.size || Math.abs(fs - t.size) <= 1;
       if (!sizeOK) bad.push(`size ${fs} vs ${t.size}`);
@@ -731,7 +793,8 @@ probe.addEventListener('load', async () => {
       const colOK = !t.color || col.toLowerCase() === t.color.toLowerCase();
       if (!colOK) bad.push(`colour ${col} vs ${t.color}`);
       if (colOK) tally.colour++;
-      if (bad.length) textIssues.push({s:sec.name, t:t.text.slice(0,34), issue:bad.join(', ')});
+      if (bad.length) textIssues.push({s:sec.name, t:t.text.slice(0,34), issue:bad.join(', '),
+                                       dyNum: Math.abs(dy) > 4 ? dy : null, yDes: t.y});
     });
   }
 
@@ -1040,6 +1103,7 @@ probe.addEventListener('load', async () => {
   }
 
   let pass = 0, fail = 0, rows = '';
+  const HEIGHT_DEBT = [];
   SECTIONS.forEach((s, i) => {
     const n = nodes[i];
     const built = n ? Math.round(n.getBoundingClientRect().height) : null;
@@ -1063,6 +1127,41 @@ probe.addEventListener('load', async () => {
              <td class="${hOK?'ok':'bad'}">${s.h} / ${built ?? '—'}</td>
              <td class="${xOK?'ok':'bad'}">${s.contentLeft ?? '—'}–${s.contentRight ?? '—'} / ${bl ?? '—'}–${br ?? '—'}</td>
              <td class="${ok?'ok':'bad'}">${ok ? 'match' : 'differs'}</td></tr>`;
+    if (!hOK && built !== null && Math.abs(built - s.h) > 6) HEIGHT_DEBT.push(`${s.name} ${built - s.h > 0 ? '+' : ''}${built - s.h}`);
+  });
+  // The height-first rule is regularly violated by readers cherry-picking the text-row
+  // count below. Make the violation impossible to miss: a machine-readable directive that
+  // any table read returns FIRST, before any per-item delta.
+  if (HEIGHT_DEBT.length) {
+    document.querySelector('header').insertAdjacentHTML('afterbegin',
+      `<div id="heightDebt" class="bad" style="border:2px solid #e66;padding:10px;margin:8px 0;font-weight:700">
+       FIX SECTION HEIGHTS FIRST — every per-item delta below is UNRELIABLE until these match
+       (page-absolute deltas cascade): ${HEIGHT_DEBT.join(' · ')}</div>`);
+  }
+  const DUPS = __DUP_WARNINGS__;
+  if (DUPS.length) {
+    document.querySelector('header').insertAdjacentHTML('afterbegin',
+      `<div id="guardWarnings" class="bad" style="border:2px solid #e6a23c;padding:10px;margin:8px 0">
+       <b>${DUPS.length} duplicate-selector warnings (FM123)</b> — a later declaration silently
+       wins; any fix to these may be a no-op:<br>${DUPS.slice(0,15).join('<br>')}
+       ${DUPS.length>15 ? '<br>… '+(DUPS.length-15)+' more' : ''}</div>`);
+  }
+  // FM128 auto-detector: within one section, deltas that grow by a roughly constant step
+  // down the page mean ONE repeated component's height is wrong — not N separate bugs.
+  const bySec = {};
+  textIssues.forEach(i => { if (i.dyNum != null && i.yDes != null) (bySec[i.s] = bySec[i.s] || []).push(i); });
+  Object.entries(bySec).forEach(([sec, list]) => {
+    if (list.length < 4) return;
+    list.sort((a, b) => a.yDes - b.yDes);
+    const steps = [];
+    for (let i = 1; i < list.length; i++) steps.push(list[i].dyNum - list[i-1].dyNum);
+    const grow = steps.filter(s => s > 2).length, shrink = steps.filter(s => s < -2).length;
+    if (grow >= steps.length * 0.7 || shrink >= steps.length * 0.7) {
+      const step = Math.round(steps.reduce((a,b)=>a+b,0) / steps.length);
+      textIssues.unshift({s: sec, t: '⚠ LINEAR DRIFT', issue:
+        `deltas step ~${step>0?'+':''}${step}px per item down the section — ONE repeated ` +
+        `component's height is off (FM128); fix that unit, not each row`});
+    }
   });
   flushMotion();   // duration reads must run OUTSIDE the transition-freezing reset
 
@@ -1231,6 +1330,8 @@ probe.addEventListener('load', async () => {
       `<div class="sub" style="margin-top:8px">Font substitutions in effect (weight not compared):
        <code>${[...SUBSTITUTED].join('</code>, <code>')}</code></div>`);
   }
+  // machine-readable completion signal: poll document.title instead of sleeping a fixed 12s
+  document.title = 'fidelity-READY';
   });
  } catch (err) { reportCrash(err); }
 });
@@ -1298,7 +1399,21 @@ def main():
 
     bps = [int(x) for x in a.breakpoints.split(",")] if a.breakpoints else []
     amap = json.load(open(a.assets_map)) if a.assets_map else None
+
+    # FM123 guard runs BEFORE the HTML is written so its findings ship INSIDE the report
+    # (a stdout-only warning died the moment a reader piped through `tail -1` — observed).
+    dup_warnings = []
+    try:
+        sys.path.insert(0, str(pathlib.Path(__file__).parent))
+        from figma_lint import duplicate_selectors
+        for cssf in sorted(glob.glob("css/*.css") + glob.glob("*.css")):
+            for ctx, s, pp in duplicate_selectors(open(cssf).read()):
+                dup_warnings.append(f"{cssf}: {s} re-sets {{{', '.join(pp[:5])}}} in {ctx}")
+    except Exception as e:
+        dup_warnings.append(f"duplicate-selector check itself failed: {e}")
+
     html = (HTML
+            .replace("__DUP_WARNINGS__", json.dumps(dup_warnings))
             .replace("__BREAKPOINTS__", json.dumps(bps))
             .replace("__ASSETS_MAP__", json.dumps(amap))
             .replace("__UNVERIFIED__", json.dumps(unverified))
@@ -1310,6 +1425,14 @@ def main():
             .replace("__MANIFEST__", json.dumps(MANIFEST)))
     pathlib.Path(a.out).write_text(html)
     selfcheck(a.out)
+
+    # Automatic FM123 guard: duplicate selectors in the project's CSS make later edits
+    # silently shadow earlier ones — the #1 cause of "changed a value, nothing moved".
+    # Run on every regen so the violation surfaces the moment it is created, not 20
+    # rounds later. (Import from figma_lint so there is exactly one implementation.)
+    if dup_warnings:
+        print(f"\n!! {len(dup_warnings)} DUPLICATE-SELECTOR warnings (FM123) — full list is IN the")
+        print("   report's #guardWarnings banner; any fix to those selectors may be a no-op.")
 
     print(f"wrote {a.out}  ({len(sections)} section(s), design width {design_w}px)")
     print("Serve the project and open it — the numbers are computed live, in the browser.")

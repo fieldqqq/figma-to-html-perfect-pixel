@@ -108,6 +108,36 @@ def css_numbers(css, prop, props):
     return out
 
 
+def duplicate_selectors(css):
+    """Check 7 (FM123): the same selector setting the SAME PROPERTY more than once inside
+    one media block. The last declaration silently wins, so every earlier 'fix' to that
+    property is a no-op — the single biggest source of edits-with-zero-effect in long
+    sessions. Two blocks for one selector with DISJOINT properties (e.g. a transitions
+    group at the end of the file) are a normal pattern and are NOT flagged.
+    Returns [(context, selector, [colliding properties])]."""
+    out = []
+    blocks = [("top-level", re.sub(r"@media[^{]+\{((?:[^{}]|\{[^{}]*\})*)\}", "", css))]
+    for m in re.finditer(r"@media([^{]+)\{((?:[^{}]|\{[^{}]*\})*)\}", css):
+        blocks.append(("@media" + m.group(1).strip(), m.group(2)))
+    for ctx, body in blocks:
+        seen = {}  # selector -> {prop: count}
+        for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", body):
+            sel = re.sub(r"/\*.*?\*/", "", m.group(1), flags=re.S).strip()
+            if not sel or sel.startswith("@"):
+                continue
+            decls = re.sub(r"/\*.*?\*/", "", m.group(2), flags=re.S)
+            props = [d.split(":", 1)[0].strip() for d in decls.split(";") if ":" in d]
+            for s in [x.strip() for x in sel.split(",") if x.strip()]:
+                bag = seen.setdefault(s, {})
+                for p in props:
+                    bag[p] = bag.get(p, 0) + 1
+        for s, bag in seen.items():
+            collide = sorted(p for p, n in bag.items() if n > 1)
+            if collide:
+                out.append((ctx[:60], s, collide))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--css", required=True)
@@ -221,6 +251,15 @@ def main():
         problems.append(("missing copy", uniq[:20] + ([f"... {len(uniq)-20} more"] if len(uniq) > 20 else []),
                          "these strings are in the design but not in the HTML — invented, "
                          "reworded or dropped copy"))
+
+    dups = duplicate_selectors(css)
+    if dups:
+        problems.append(("duplicate selectors",
+                         [f"{s} re-sets {{{', '.join(pp)}}} in {ctx}" for ctx, s, pp in dups[:15]]
+                         + ([f"... {len(dups)-15} more"] if len(dups) > 15 else []),
+                         "same selector declared repeatedly in one media block — the LAST one "
+                         "silently wins and every earlier edit to it is a no-op (FM123). "
+                         "Consolidate to one declaration per selector before anything else."))
 
     print("Design vocabulary")
     print(f"  spacing values : {sorted(spacing)}")
