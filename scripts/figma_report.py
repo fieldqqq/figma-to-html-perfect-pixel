@@ -935,7 +935,16 @@ probe.addEventListener('load', async () => {
       const el = (pick && pick.d <= Math.max(24, b.w)) ? pick.el : null;
       if (!el) { gfx.image.missing++; gfxIssues.push({s:sec.name, k:'image', m:`missing at ${b.x},${b.y}`}); return; }
       const bi = getComputedStyle(el).backgroundImage;
-      const real = el.tagName === 'IMG' ? !!el.currentSrc : /url\(/.test(bi);
+      // A full-bleed section photo is routinely painted as a CSS background on the section
+      // (or an ancestor) with a gradient SCRIM element on top; nearest() then picks the scrim
+      // — a pure gradient, no url() — and calling it a "placeholder" is a false alarm while the
+      // real photo sits one level up. Accept a url() background on el OR any ancestor up to the
+      // section root before crying placeholder. (image identity, below, still checks it's the
+      // RIGHT photo, so this only silences the has-no-photo-at-all false positive.)
+      let real = el.tagName === 'IMG' ? !!el.currentSrc : /url\(/.test(bi);
+      if (!real) for (let a = el; a && a !== node.parentElement; a = a.parentElement) {
+        if (/url\(/.test(getComputedStyle(a).backgroundImage)) { real = true; break; }
+      }
       if (real) gfx.image.real++;
       else { gfx.image.placeholder++; gfxIssues.push({s:sec.name, k:'image', m:`gradient placeholder at ${b.x},${b.y}`}); }
     });

@@ -88,8 +88,15 @@ for name, needle in [
     ("READY completion signal",           "fidelity-READY"),
     ("design target beside every delta",  "[design y${t.y}]"),
     ("dup warnings injected into HTML",   "__DUP_WARNINGS__"),
+    ("FM137 image-audit walks ancestors", "a = a.parentElement"),
 ]:
     check(name, needle in src, f"needle missing: {needle!r}")
+
+# FM137: the real/placeholder test must consult ancestors, not only the picked element,
+# so a CSS-background section photo under a gradient scrim isn't cried as a placeholder.
+check("FM137 ancestor url() accepted before placeholder",
+      "node.parentElement" in src and "gradient placeholder" in src,
+      "FM137 ancestor-walk guard missing")
 
 # the swing must run AFTER the settle sampler (FM131 ordering bug was real)
 i_settle, i_swing = src.find("sample()==="), src.find("DESIGN_W + 700")
