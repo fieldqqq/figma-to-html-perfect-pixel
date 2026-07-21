@@ -302,6 +302,10 @@ def load_sections(nodes_dir, renders_dir):
                         "text": " ".join(chars.split()),
                         "x": round(bb["x"] - sx), "y": round(bb["y"] - sy),
                         "w": round(bb["width"]), "h": round(bb["height"]),
+                        # line-height in px, to count how many lines the design node occupies
+                        # (a built node that wraps to MORE lines than this passes position/
+                        # size/weight/colour yet is visibly broken — see the wrap audit)
+                        "lh": round(st.get("lineHeightPx") or (st.get("fontSize", 16) * 1.2)),
                         "size": round(st.get("fontSize", 0)),
                         "weight": st.get("fontWeight"),
                         "family": st.get("fontFamily"),
@@ -793,6 +797,25 @@ probe.addEventListener('load', async () => {
       const colOK = !t.color || col.toLowerCase() === t.color.toLowerCase();
       if (!colOK) bad.push(`colour ${col} vs ${t.color}`);
       if (colOK) tally.colour++;
+      // WRAP audit: a node that wraps to MORE lines than the design (or overflows its box)
+      // keeps the same top-left, size, weight and colour — it passes every check above yet is
+      // visibly wrong (taller, shoves content below down, or spills past the box and clips).
+      // Position deltas miss it because the top-left corner does not move when text wraps
+      // downward. Compare rendered line count against the design node's, and flag horizontal
+      // overflow of the design box width. (This is the check that would have caught a tag row
+      // wrapping "…| NATURE" / "RETREAT" that every other metric scored as a match.)
+      const builtLH = parseFloat(cs.lineHeight) || (fs * 1.2 || 16);
+      // Figma's text bounding-box height is the INK height (cap/baseline extent), which is
+      // SMALLER than the CSS line box — a 1-line node reads h≈10 for lh=17, and an n-line node
+      // reads h≈(n-1)·lh + ink. round(h/lh) therefore UNDERCOUNTS (a real 2-line design node
+      // reads as 1) and would false-flag correct multi-line copy as an over-wrap. ceil() inverts
+      // (n-1)·lh + ink back to n exactly, since 0 < ink < lh.
+      const designLines = t.lh ? Math.max(1, Math.ceil(t.h / t.lh)) : 1;
+      const extraLines = (r.height - designLines * builtLH) / builtLH;
+      if (extraLines > 0.5)
+        bad.push(`wraps ~${designLines + Math.round(extraLines)} lines vs design ${designLines} [box w${t.w}]`);
+      else if (el.scrollWidth > el.clientWidth + 2 && el.clientWidth > 0 && r.width <= t.w + 4)
+        bad.push(`text overflows box by ${el.scrollWidth - el.clientWidth}px [design w${t.w}]`);
       if (bad.length) textIssues.push({s:sec.name, t:t.text.slice(0,34), issue:bad.join(', '),
                                        dyNum: Math.abs(dy) > 4 ? dy : null, yDes: t.y});
     });

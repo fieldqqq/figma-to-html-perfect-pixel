@@ -89,6 +89,8 @@ for name, needle in [
     ("design target beside every delta",  "[design y${t.y}]"),
     ("dup warnings injected into HTML",   "__DUP_WARNINGS__"),
     ("FM137 image-audit walks ancestors", "a = a.parentElement"),
+    ("FM139 wrap/overflow audit",         "wraps ~${designLines"),
+    ("FM139 design lineHeight captured",  '"lh": round(st.get("lineHeightPx")'),
 ]:
     check(name, needle in src, f"needle missing: {needle!r}")
 
